@@ -21,6 +21,12 @@ import random
 from Pyro4 import errors, socketutil, util, constants, message, futures
 from Pyro4.configuration import config
 
+import importlib.machinery
+import importlib.util
+import os.path
+import re
+import sys
+
 
 __all__ = ["URI", "Proxy", "Daemon", "current_context", "callback", "batch", "asyncproxy", "expose", "behavior",
            "oneway", "SerializedBlob", "_resolve", "_locateNS"]
@@ -2059,3 +2065,38 @@ if sys.version_info < (3, 7):
     current_module = sys.modules[__name__]
     pyro4_module = __import__("Pyro4")
     current_module.__dict__["async"] = pyro4_module.__dict__["async"] = asyncproxy
+
+
+def get_attrs(fpath, attrs_pattern):
+    """Get selected attributes from Python module.
+
+    fpath is the path for the python script, and attrs_re is a regular
+    expression pattern for the attributes to return.
+    """
+    (dirname, basename) = os.path.split(fpath)
+    basename = os.path.splitext(basename)[0]
+    spec = importlib.machinery.PathFinder.find_spec(basename, path=[dirname])
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    attrs = []
+    for name in dir(module):
+        if re.match(attrs_pattern, name):
+            attrs.append(module.__getattribute__(name))
+    return attrs
+
+
+def main_daemon(argv):
+    attrs_pattern = argv[0]
+    script = argv[1]
+    verbose = True
+
+    attrs = get_attrs(script, attrs_pattern)
+    daemon = Daemon()
+    for attr in attrs:
+        uri = daemon.register(attr)
+        if verbose:
+            print(uri)
+    daemon.requestLoop()
+
+if __name__ == "__main__":
+    main_daemon(sys.argv[1:])
